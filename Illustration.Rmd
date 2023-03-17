@@ -1,0 +1,501 @@
+---
+title: "Data generative process' illustration"
+output: html_document
+date: "2022-11-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plotly) # 3d plot
+library(ggplot2)
+library(tidyr)
+library(RColorBrewer)
+library(metR)
+library(dplyr)
+```
+
+
+
+# Plots of the different metrics (Appendix)
+
+
+```{r}
+plot.metrics <- data.frame("P.Y.1" = c(),
+                           "P.Y.0" = c(),
+                           "RD" = c(),
+                           "RR" = c(),
+                           "SR" = c(),
+                           "NNT" = c(),
+                           "odds.ratio" = c(),
+                           "log.odds.ratio" = c())
+
+
+
+## Potential outcomes support
+P.Y.1 = seq(0.1, 0.9, 0.005)
+P.Y.0 = seq(0.1, 0.9, 0.005)
+
+
+for (py0 in P.Y.0){
+  for (py1 in P.Y.1){
+    
+    ## Metrics
+    RD = py1 - py0 
+    RR = py1 / py0
+    SR = (1 - py1) / (1 - py0)
+    NNT = 1 / RD
+    odds.ratio = (py1 / (1-py1)) /(py0 / (1 - py0))
+    log.odds.ratio = log(odds.ratio)
+    
+    
+    ## Update data 
+    new.row <- data.frame("P.Y.1" = py1,
+                           "P.Y.0" = py0,
+                           "RD" = RD,
+                           "RR" = RR,
+                           "SR" = SR,
+                           "NNT" = NNT,
+                           "odds.ratio" = odds.ratio,
+                           "log.odds.ratio" = log.odds.ratio)
+    
+    plot.metrics <- rbind(plot.metrics, new.row)
+    
+  }
+}
+
+```
+
+
+```{r}
+mybreaks = c(0, 0.17, 0.25, 0.33, 0.5, 2/3, 1, 1.5, 2, 3, 4, 6, Inf)
+
+plot.metrics[, c("RR", "SR", "P.Y.1", "P.Y.0")] %>%
+  pivot_longer(cols = c("SR"), names_to = "metric", values_to = "effect") %>%
+  ggplot(aes(x = P.Y.0, y = P.Y.1, z = effect)) +
+  #geom_contour_fill() +
+  geom_contour_filled(breaks = mybreaks, show.legend = T) +
+  guides(fill = guide_colorsteps()) +
+  theme_minimal() +
+  xlab("% of events in control group") +
+  ylab("% of events in treated group") + 
+  labs(fill='') +
+  theme(legend.position =  "right") + 
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.key.height = unit(2, "cm")) 
+ggsave("./fig/SR.png", width = 7, height = 5)
+  #viridis::scale_fill_viridis(option = 'inferno')
+
+
+plot.metrics[, c("RR", "SR", "P.Y.1", "P.Y.0")] %>%
+  pivot_longer(cols = c("RR"), names_to = "metric", values_to = "effect") %>%
+  ggplot(aes(x = P.Y.0, y = P.Y.1, z = effect)) +
+  #geom_contour_fill() +
+  geom_contour_filled(breaks = mybreaks, show.legend = T) +
+  guides(fill = guide_colorsteps()) +
+  theme_minimal() +
+  xlab("% of events in control group") +
+  ylab("% of events in treated group") + 
+  labs(fill='') +
+theme(legend.position =  "left") + 
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.key.height = unit(2, "cm")) 
+ggsave("./fig/RR.png", width = 7, height = 5)
+  #viridis::scale_fill_viridis(option = 'inferno')
+
+
+```
+
+
+
+```{r}
+plot.metrics[, c("RD", "P.Y.1", "P.Y.0")] %>%
+  pivot_longer(cols = c("RD"), names_to = "metric", values_to = "effect") %>%
+  ggplot(aes(x = P.Y.0, y = P.Y.1, z = effect)) +
+  geom_contour_fill(bins = 10) +
+  theme_minimal() +
+  xlab("% of events in control group") +
+  ylab("% of events in treated group") + 
+  labs(fill='') +
+  theme(legend.position =  "left") + 
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.key.height = unit(2, "cm"))   +
+  viridis::scale_fill_viridis(option = 'viridis')
+ggsave("./fig/RD-plot.png", width = 7, height = 5)
+```
+
+
+```{r}
+plot.metrics$NNT <- ifelse(is.infinite(plot.metrics$NNT) | plot.metrics$NNT > 20, 20,  plot.metrics$NNT)
+
+plot.metrics[plot.metrics$P.Y.1 > plot.metrics$P.Y.0, c("NNT", "P.Y.1", "P.Y.0")] %>%
+  pivot_longer(cols = c("NNT"), names_to = "metric", values_to = "effect") %>%
+  ggplot(aes(x = P.Y.0, y = P.Y.1, z = effect)) +
+  geom_contour_fill(bins = 20) +
+  theme_minimal() +
+  xlab("% of events in control group") +
+  ylab("% of events in treated group") + 
+  labs(fill='') +
+  theme(legend.position =  "right") + 
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.key.height = unit(2, "cm"))  +
+  viridis::scale_fill_viridis(option = 'viridis') +
+  geom_abline(intercept=0, slope=1, size = 1.5, alpha = 0.8, color = "darkblue")
+ggsave("./fig/NNT-plot.png",width = 7, height = 5)
+```
+
+
+```{r}
+plot.metrics[, c("odds.ratio", "P.Y.1", "P.Y.0")] %>%
+  pivot_longer(cols = c("odds.ratio"), names_to = "metric", values_to = "effect") %>%
+  ggplot(aes(x = P.Y.0, y = P.Y.1, z = effect)) +
+  geom_contour_fill(bins = 50) +
+  theme_minimal() +
+  xlab("% of events in control group") +
+  ylab("% of events in treated group") + 
+  labs(fill='') +
+  theme(legend.position =  "left") + 
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.key.height = unit(2, "cm"))   +
+  viridis::scale_fill_viridis(option = 'viridis')
+ggsave("./fig/odds-plot.png", width = 7, height = 5)
+
+plot.metrics[, c("log.odds.ratio", "P.Y.1", "P.Y.0")] %>%
+  pivot_longer(cols = c("log.odds.ratio"), names_to = "metric", values_to = "effect") %>%
+  ggplot(aes(x = P.Y.0, y = P.Y.1, z = effect)) +
+  geom_contour_fill(bins = 20) +
+  theme_minimal() +
+  xlab("% of events in control group") +
+  ylab("% events in treated group") + 
+  labs(fill='') +
+  theme(legend.position =  "right") + 
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.key.height = unit(2, "cm"))   +
+  viridis::scale_fill_viridis(option = 'viridis')
+ggsave("./fig/log-odds-plot.png", width = 7, height = 5)
+```
+
+# Comments of Cummings
+
+
+```{r}
+baseline <- seq(0,1, 0.01)
+tauRR = c(1.2, 1.4, 1.6, 1.8, 2, 2.5, 3, 4)
+
+
+data.for.plot <- data.frame("p0" = c(),
+                            "mb" = c(),
+                            "Risk.Ratio" = c())
+
+
+for (RR in tauRR){
+  
+  
+  new.row <- data.frame("p0" = baseline,
+                        "mb" = (RR- 1)/(1-baseline)*baseline,
+                        "Risk.Ratio" = rep(RR, length(baseline)))
+  
+  data.for.plot <- rbind(data.for.plot, new.row)
+  
+}
+
+data.for.plot$Risk.Ratio <- as.factor(data.for.plot$Risk.Ratio)
+
+```
+
+```{r}
+ggplot(data.for.plot, aes(x = p0, y = mb, color = Risk.Ratio, group =Risk.Ratio)) +
+  geom_line(size = 1) +
+  geom_hline(yintercept = 1, color = "red", linetype = "dashed", size = 0.8) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", size = 0.8) + 
+  xlim(0, 0.9) +
+  ylim(0, 1)  +
+  theme_bw() +
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.position = "top")  + 
+  scale_color_brewer(palette="Pastel2") +
+  ylab(expression(m[b](x))) +
+  xlab(expression(p[0](x))) 
+
+ggsave("./fig/cumming1.png", width = 6, height = 4)
+  
+```
+
+```{r}
+baseline <- seq(0,1, 0.01)
+tauSR = seq(0.2,0.9, 0.1)
+
+
+data.for.plot <- data.frame("p0" = c(),
+                            "mb" = c(),
+                            "Survival.Ratio" = c())
+
+
+for (SR in tauSR){
+  
+  
+  new.row <- data.frame("p0" = baseline,
+                        "mb" = (SR - 1)/(1-baseline)*(baseline - 1),
+                        "Survival.Ratio" = rep(SR, length(baseline)))
+  
+  data.for.plot <- rbind(data.for.plot, new.row)
+  
+}
+
+data.for.plot$Survival.Ratio <- as.factor(data.for.plot$Survival.Ratio)
+
+```
+
+```{r}
+ggplot(data.for.plot, aes(x = p0, y = mb, color = Survival.Ratio, group =Survival.Ratio)) +
+  geom_line(size = 1) +
+  geom_hline(yintercept = 1, color = "red", linetype = "dashed", size = 0.8) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", size = 0.8) + 
+  xlim(0, 0.9) +
+  ylim(0, 1)  +
+  theme_bw() +
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.position = "top")  + 
+  scale_color_brewer(palette="Pastel2") +
+  ylab(expression(m[b](x))) +
+  xlab(expression(p[0](x))) 
+
+ggsave("./fig/cumming2.png", width = 6, height = 4)
+  
+```
+
+# Plot for appendix
+
+Proof for non collapsibility of the odds ratio
+
+```{r}
+expit <- function(p){
+  return(exp(p) / (1+exp(p)))
+}
+
+logit <- function(p){
+  return(log(p/(1-p)))
+}
+```
+
+
+```{r}
+## p0 coordinate
+p0 = seq(0, 1, 0.01)
+m = c(seq(1, 3, 1), seq(-1, -3, -1))
+
+data.for.plot <- data.frame("p0" = c(),
+                            "m" = c(),
+                            "p1" = c())
+
+for (mu in m){
+  p1 <- expit(logit(p0) + mu)
+  
+  new.row <- data.frame("p0" = p0,
+                        "m" = rep(mu, length(p0)),
+                        "p1" = p1)
+  
+  data.for.plot <- rbind(data.for.plot, new.row)
+}
+
+data.for.plot$m <- as.factor(data.for.plot$m)
+```
+
+```{r}
+ggplot(data.for.plot, aes(x = p0, y = p1, color = m, group = m)) + 
+  geom_line(size = 1) +
+   theme_minimal() +
+  xlab(expression(P[Y^{(0)}](X))) +
+  ylab(expression(P[Y^{(1)}](X))) +
+  theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.position = "top") + 
+  scale_color_brewer(palette="Dark2") 
+ggsave("./fig/schema-proof-non-collapsible.png", width = 5, height = 5)
+``` 
+
+
+
+# Additional plots not in the papers
+
+```{r}
+## X1 coordinates
+X1 = seq(0, 1, 0.01)
+
+## X2 coordinates
+X2 = seq(0, 1, 0.01)
+
+## Outcome model
+Y_control = matrix(X1 + X2 + 0.8*X1*X1, nrow = length(X1), ncol = length(X2))
+Y_treated = matrix(X1 + X2 + 0.8*X1*X1 + 2, nrow = length(X1), ncol = length(X2))
+Y_treated_bis = matrix(X1 + X2 + 0.8*X1*X1 + X1*X1, nrow = length(X1), ncol = length(X2))
+
+fig <- plot_ly(showscale = FALSE)
+fig <- fig %>% add_surface(z = ~Y_control, colorscale = list(c(0,1),c("rgb(204,102,0)","rgb(255,178,102)")) )
+fig <- fig %>% add_surface(z = ~Y_treated, opacity = 0.98, colorscale = list(c(0,1),c("rgb(0,0,155)","rgb(102,102,153)")))
+fig <- fig %>% add_surface(z = ~Y_treated_bis, opacity = 0.98, colorscale = list(c(0,1),c("rgb(102,255,255)","rgb(0,204,204)")))
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'X1'),
+                     yaxis = list(title = 'X2'),
+                     zaxis = list(title = 'Y')))
+fig
+
+```
+
+
+
+```{r}
+X.seq <- seq(-3, 3, by = 0.05)
+plot.binary.Y <- data.frame("X" = c(),
+                            "b" = c(),
+                            "m" = c(),
+                            "Y" = c(),
+                            "A" = c())
+
+for ( b in c("Constant", "Linear", "Square")){
+  for (m in c("Constant", "Linear", "Square")){
+    
+    X = X.seq
+    
+    if(b == "Constant"){
+      B = rep(-1, length(X))
+    } else if(b == "Linear"){
+      B = 1.8*X
+    } else {
+      B = 0.3*X*X-2
+    }
+    
+     if(m == "Constant"){
+      M = rep(-1.5, length(X))
+    } else if(m == "Linear"){
+      M = -X
+    } else {
+      M = -0.5*X*X
+    }
+    
+    
+    new.data <- data.frame("X" = rep(X, 2),
+                            "b" = rep(rep(b, length(X)), 2),
+                            "m" = rep(rep(m, length(X)), 2),
+                            "Y" = c( (exp(B +M) / (1 + exp(B + M))), (exp(B) / (1 + exp(B)))),
+                            "A" =  c(rep(1, length(X)), rep(0, length(X))))
+    
+    plot.binary.Y <- rbind(plot.binary.Y, new.data)
+    
+  }
+}
+
+
+plot.binary.Y$A <- as.factor(plot.binary.Y$A)
+
+```
+
+
+```{r}
+ggplot(plot.binary.Y, aes(x = X, y = Y, color = A, group = A)) +
+  geom_line(size = 0.8) +
+  facet_grid(b~m, labeller=label_both) +
+  scale_color_manual("Treatment (A)", values=c("#E69F00", "#56B4E9")) +
+  theme_bw() +
+  ylab("Outcome (Y)") +
+  xlab("Covariate (X)") + 
+  theme(legend.position="top")
+#ggsave("./schematic-generative-model-binary-y-logit.png", width = 7, height = 4)
+```
+
+
+
+
+# Some illustrations 
+
+
+```{r}
+N = 100000
+p0.F = 0.7
+p0.M = 0.2
+m_g = 0.3
+
+
+Gender = rbinom(n = N, size = 1, prob = 0.5)
+A = rbinom(n = N, size = 1, prob = 0.5)
+
+treatment.will.save = rbinom(N,1,m_g)
+baseline.women = rbinom(N,1,p0.F)
+baseline.men = rbinom(N,1,p0.M)
+
+
+Y <- ifelse(Gender == 1, baseline.women, baseline.men)
+
+Y <- ifelse(treatment.will.save == 1 & A == 1, 0, Y)
+
+toy.example <- data.frame("Gender" = Gender,
+                          "Y" = Y,
+                          "Treatment" = A)
+
+toy.example$Treatment <- ifelse(toy.example$Treatment == 1, "Treated", "Placebo")
+toy.example$Gender <- ifelse(toy.example$Gender == 1, "Women", "Men")
+```
+
+```{r}
+toy.example %>%
+  group_by(Gender, Treatment) %>%
+  summarise(count = n(), nb.occurences = sum(Y), percentage.occurence = round(100*nb.occurences/count, 0)) %>%
+  ggplot(aes(x= Gender, y = percentage.occurence, color = Treatment, fill = Treatment)) +
+  geom_bar(stat = "identity", alpha = 0.3, width = 0.5, size = 1, position = position_dodge(width=0.6)) +
+  theme_classic()  +
+  scale_color_manual(values =  c("#00AFBB", "#E7B800"))  +
+  scale_fill_manual(values =  c("#00AFBB", "#E7B800")) +
+  ylab("% Occurences") +
+  xlab("")  +
+   theme(axis.title = element_text(size = 14, face = "bold"), axis.text = element_text(size = 15, face = "bold"), legend.text = element_text(face = "bold", size = 11), legend.position = "top", legend.title=element_blank())
+#ggsave("./fig/toyexample1.png", width = 5, height = 5)
+```
+
+
+```{r}
+N = 100000
+p0.F = 0.7
+p0.M = 0.2
+m_g = 0.3
+
+
+Gender = rbinom(n = N, size = 1, prob = 0.2)
+A = rbinom(n = N, size = 1, prob = 0.5)
+
+treatment.will.save = rbinom(N,1,m_g)
+baseline.women = rbinom(N,1,p0.F)
+baseline.men = rbinom(N,1,p0.M)
+
+
+Y <- ifelse(Gender == 1, baseline.women, baseline.men)
+
+Y <- ifelse(treatment.will.save == 1 & A == 1, 0, Y)
+
+toy.example.pop.2 <- data.frame("Gender" = Gender,
+                          "Y" = Y,
+                          "Treatment" = A)
+
+toy.example.pop.2$Treatment <- ifelse(toy.example.pop.2$Treatment == 1, "Treated", "Placebo")
+toy.example.pop.2$Gender <- ifelse(toy.example.pop.2$Gender == 1, "Women", "Men")
+
+
+toy.example.pop.2$Population <- rep("Target (80:20)", N)
+toy.example$Population <- rep("Source (50:50)", N)
+
+several.populations <- rbind(toy.example.pop.2, toy.example)
+
+several.populations %>%
+  group_by(Population, Treatment) %>%
+  summarise(count = n(), nb.occurences = sum(Y), percentage.occurence = round(100*nb.occurences/count, 0))
+
+```
+
+
+```{r}
+several.populations %>%
+  group_by(Population, Treatment) %>%
+  summarise(count = n(), nb.occurences = sum(Y), percentage.occurence = round(100*nb.occurences/count, 0)) %>%
+  ggplot(aes(x= Population, y = percentage.occurence, color = Treatment, fill = Treatment)) +
+  geom_bar(stat = "identity", alpha = 0.3, width = 0.4, size = 1, position = position_dodge(width=0.6)) +
+  theme_classic()  +
+  scale_color_manual(values =  c("#00AFBB", "#E7B800"))  +
+  scale_fill_manual(values =  c("#00AFBB", "#E7B800")) +
+  ylab("% Occurences") +
+  xlab("")  +
+  ylim(0,50) +
+   theme(axis.title = element_text(size = 20, face = "bold"), axis.text = element_text(size = 20, face = "bold"), legend.text = element_text(face = "bold", size = 20), legend.position = "right", legend.title=element_blank())
+#ggsave("./fig/toyexample2.png", width = 8, height = 7)
+```
+
+
+
+
