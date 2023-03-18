@@ -1,0 +1,470 @@
+---
+title: "Simulations"
+output: html_document
+date: "2023-02-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(tidyr)
+library(RColorBrewer)
+library(metR)
+library(dplyr)
+library(MASS)
+```
+
+
+# Continuous outcome
+
+```{r}
+# simulation with continuous outcome
+simulate_continuous <- function(n = 1000, m = 10000) {
+  
+  covariates_names <- c(paste("X.", 1:3, sep = ""))
+  Sigma = matrix(c(1, 0, 0.5,
+                   0, 1, 0.2,
+                   0.5, 0.2, 1), nrow = 3, ncol = 3, byrow = TRUE)
+  
+  mu.Target = c(15, 7, 10)
+  mu.RCT = c(6, 5, 8)
+  
+  # generate source population
+  ## Shifted covariates X.1 --> X.4
+  source.data <- mvrnorm(n = n, mu = mu.RCT, Sigma = Sigma)  
+  source.data <- as.data.frame(source.data)
+  names(source.data) <- covariates_names
+  source.data$X.4 <- rbinom(n = n, 1, 0.8)
+  
+  ## Non-shifted covariates X.5 --> X.6
+  source.data$X.5 <- rbinom(n = n, 1, 0.8)
+  source.data$X.6 <- rnorm(n = n, mean = 4, sd = 1)
+  
+  # generate target population
+  ## Shifted covariates X.1 --> X.4
+  target.data <- mvrnorm(n = m, mu = mu.Target, Sigma = Sigma)  
+  target.data <- as.data.frame(target.data)
+  names(target.data) <- covariates_names
+  target.data$X.4 <- rbinom(n = m, 1, 0.3)
+  
+  ## Non-shifted covariates X.5 --> X.6
+  target.data$X.5 <- rbinom(n = m, 1, 0.8)
+  target.data$X.6 <- rnorm(n = m, mean = 4, sd = 1)
+  
+  
+  # Generate outcome
+  source.data$S <- rep(1, n)
+  target.data$S <- rep(0, m)
+  total <- rbind(source.data, target.data)
+  total$A <- ifelse(total$S == 1, rbinom( n+m, 1, 0.5), NA)
+  
+  
+  ## X.1, X.2, and X.5 are treatment effect modifier
+  error_0 = rnorm(n = n+m, mean = 0, sd = 2)
+  error_1 = rnorm(n =  n+m, mean = 0, sd = 2)
+  total$Y_0 = 0.05*total$X.1 +  0.04*total$X.2 + 2*total$X.3 + 1*total$X.4 + 2*total$X.5 - 2*total$X.6 
+  total$Y_1 = total$Y_0 + 1.5*total$X.1 + 2*total$X.2 + 1*total$X.5 
+  total$Y_0 = total$Y_0 + error_0
+  total$Y_1 = total$Y_1 + error_1
+  
+  total$Y <- case_when(total$S == 1 & total$A == 1 ~ total$Y_1,
+                       total$S == 1 & total$A == 0 ~ total$Y_0,
+                       total$S == 0 ~ total$Y_0)
+  
+  return(total)
+}
+
+# G-formula continuous
+compute_gformula_continuous <- function(DF){
+
+  temp <- DF
+  mean.Y.0.target <- mean(temp[temp$S == 0, "Y"])
+  
+  mu_1 <- lm(Y ~., data = temp[temp$S == 1 & temp$A == 1, !names(temp) %in% c("S", "A")])
+  mu_0 <- lm(Y ~., data = temp[temp$S == 1 & temp$A == 0, !names(temp) %in% c("S", "A")])
+    
+  mu_1_predict <- predict.lm(mu_1, newdata = temp[temp$S == 0, !names(temp) %in% c("S", "A")])
+  mu_0_predict <- predict.lm(mu_0, newdata = temp[temp$S == 0, !names(temp) %in% c("S", "A")])
+  
+  # RD standardization
+  tau_hat_gformula.RD.stand <- mean(mu_1_predict - mu_0_predict)
+  
+  # RD outcome
+  tau_hat_gformula.RD.outcome <- mean(mu_1_predict) - mean(mu_0_predict)
+
+  # RR standardization
+  expec.Y0.on.target <- lm(Y ~., data = temp[temp$S == 0, !names(temp) %in% c("S", "A")])
+  baseline_predict <- predict(expec.Y0.on.target)
+  tau_hat_gformula.RR.stand <- mean( (mu_1_predict/mu_0_predict)*(baseline_predict) )  / mean.Y.0.target   
+  tau_hat_gformula.RR.stand.naive <- mean( (mu_1_predict/mu_0_predict)*(1) )  / 1 
+
+  # RR outcome
+  tau_hat_gformula.RR.outcome <- mean(mu_1_predict) / mean(mu_0_predict)
+  
+  # ERR outcome
+  tau_hat_gformula.ERR.outcome <- tau_hat_gformula.RD.stand/mean(mu_0_predict)
+  
+  # ERR standardization
+  tau_hat_gformula.ERR.stand <- mean( ( (mu_1_predict - mu_0_predict)/mu_0_predict)*(baseline_predict) )  / mean.Y.0.target   
+  tau_hat_gformula.ERR.stand.naive <- mean( ((mu_1_predict - mu_0_predict)/mu_0_predict)*(1) )  / 1 
+  
+  return(c("RD.stand" = tau_hat_gformula.RD.stand,  "RD.out" = tau_hat_gformula.RD.outcome, "RR.stand" = tau_hat_gformula.RR.stand, "RR.out" = tau_hat_gformula.RR.outcome, "ERR.stand" = tau_hat_gformula.ERR.stand, "ERR.out" = tau_hat_gformula.ERR.outcome, "RR.naive.stand" = tau_hat_gformula.RR.stand.naive, "ERR.naive.stand" = tau_hat_gformula.ERR.stand.naive)) 
+}
+```
+
+```{r}
+simulation <- simulate_continuous(n = 1000000, m = 1000000)
+simulation$S <- as.factor(simulation$S)
+source <- simulation[simulation$S == 1,]
+target <- simulation[simulation$S == 0,]
+ATE.TARGET.RD <- mean(target$Y_1) - mean(target$Y_0)
+ATE.SOURCE.RD <- mean(source$Y_1) - mean(source$Y_0)
+ATE.TARGET.RR <- mean(target$Y_1)/mean(target$Y_0)
+ATE.SOURCE.RR <- mean(source$Y_1) / mean(source$Y_0)
+ATE.TARGET.ERR <- ATE.TARGET.RD/mean(target$Y_0)
+ATE.SOURCE.ERR <-ATE.SOURCE.RD / mean(source$Y_0)
+```
+
+
+```{r}
+simulation <- simulate_continuous(n = 10000, m = 10000)
+simulation$Population <- ifelse(simulation$S == 1 , "Source", "Target")
+
+simulation <- simulation %>% 
+  pivot_longer(cols = c("X.6", "X.2"), names_to = "Covariate") 
+  
+
+
+ggplot(simulation, aes(x = value, group = Population, fill = Population)) +
+ geom_density(alpha=0.4) +
+  theme_classic() +
+  facet_grid(~Covariate) +
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+  xlab("") +
+  ylab("") +
+  theme(legend.text=element_text(size=12),
+        legend.title=element_text(size=14,face="bold"),
+        legend.position = "top",
+        strip.text = element_text(face = "bold"))
+
+ggsave("./fig/illustration-shifted.png", width=4, height=2)
+# ggplot(simulation, aes(x = X.2,  fill = S, group = S)) +
+#   geom_density(alpha=0.4) +
+#   theme_classic() +
+#   scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) +
+#   xlab(expression(X[2]))+
+#   ylab("") +
+#   theme(legend.position = "right")
+```
+
+
+
+```{r}
+Y.continuous.simulations <- data.frame("measure" = c(),
+                                       "subset" = c(),
+                                       "estimate" = c(), 
+                                       "Re.weighting" = c())
+
+for (i in 1:500){
+  
+  simulation <- simulate_continuous(n = 2000, m = 5000)
+  for (subset in c("Shifted treatment effect modulators", "Shifted prognostic covariates", "All prognostic covariates")){
+      
+    if (subset == "Shifted treatment effect modulators"){
+      covariates.used.for.adjustement <- c("X.1", "X.2")
+    } else if (subset == "Shifted prognostic covariates"){
+      covariates.used.for.adjustement <- c("X.1", "X.2", "X.3", "X.4")
+    } else {
+      covariates.used.for.adjustement <- c("X.1", "X.2", "X.3", "X.4", "X.5", "X.6")
+    }
+      
+      estimate <- compute_gformula_continuous(DF = simulation[, c(covariates.used.for.adjustement, "A", "S", "Y")])
+      
+      
+      new.row <- data.frame("measure" = c("RD", "RD", "RD", "RR", "RR", "ERR", "ERR", "RR", "ERR"),
+                            "subset" = rep(subset, 9),
+                            "estimate" = c(estimate[1], estimate[2], estimate[2], estimate[3], estimate[4], estimate[5], estimate[6], estimate[7], estimate[8]),
+                            "Re.weighting" = c("Local effects", "Conditional outcome", "Local effects (naive)",  "Local effects", "Conditional outcome", "Local effects", "Conditional outcome", "Local effects (naive)", "Local effects (naive)"))
+      
+      Y.continuous.simulations <- rbind(Y.continuous.simulations, new.row)
+      
+  }
+}
+```
+
+
+```{r}
+target.values <- data.frame(measure = c("ERR", "RD", "RR"), 
+                         hline = c(ATE.TARGET.ERR, ATE.TARGET.RD, ATE.TARGET.RR))
+
+source.values <- data.frame(measure = c("ERR", "RD", "RR"), 
+                         hline = c(ATE.SOURCE.ERR, ATE.SOURCE.RD, ATE.SOURCE.RR))
+```
+
+
+```{r}
+ggplot(Y.continuous.simulations, aes(x = subset,  y = estimate, fill = subset)) +
+  geom_boxplot() +
+  facet_grid(measure~Re.weighting, scales="free") +
+  theme(text = element_text(size=10), axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+  ylab("Effect value")  +
+  theme_bw() +
+    theme(legend.title = element_blank(), 
+          legend.position="right", legend.box = "horizontal") +  # no title in legend
+  scale_fill_brewer(palette = "Set2") +
+  theme(legend.title=element_blank(), legend.position = "right", text = element_text(size=12, face = "bold"), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) +                                                
+  geom_hline(data = target.values,
+             aes(yintercept = hline), color = "#0A11F3", size = 1, linetype = "dashed")+                                                
+  geom_hline(data = source.values,
+             aes(yintercept = hline), color = "#F30ADB", size = 0.6, linetype = "dashed") +
+ theme(
+   strip.background = element_rect(
+     color="black", size=1.5, linetype="solid"
+     )
+   ) + scale_fill_manual(values=c("#D82412", "#F98903", "#E5E23F"))
+
+ggsave("./fig/simulations-continuous-Y.png", height = 5, width = 9)
+```
+
+
+
+# Binary outcome
+
+```{r}
+generate.simulation.low.baseline <- function(n = 1000000, m = 100000){
+  df.R <- data.frame("genetic" = rbinom(n, 1, 0.4),
+                     "tabagism" = rbinom(n, 1, 0.8),
+                     "age" = 1 + rbinom(n, 1, 0.8))
+  df.T <- data.frame("genetic" = rbinom(m, 1, 0.1),
+                    "tabagism" = rbinom(m, 1, 0.3),
+                     "age" = 1 + rbinom(m, 1, 0.3))
+
+  df.R$S <- rep(1, n)
+  df.T$S <- rep(0, m)
+  
+  df <- rbind(df.T, df.R)
+  
+  df$prob.thrombosis <-  ifelse(df$genetic == 1, 0.0005709392/df$age, 8.221618e-05/df$age)
+  df$prob.thrombosis <- ifelse(df$tabagism == 1, 24*df$prob.thrombosis, df$prob.thrombosis)
+  Y_0 <- rbinom(nrow(df), 1, df$prob.thrombosis)
+  prob.thrombosis.if.treated <- ifelse(df$genetic == 1, 0.2854859, 0.003045045)
+  df$prob.thrombosis.if.treated <- df$prob.thrombosis + (1-df$prob.thrombosis)*prob.thrombosis.if.treated
+  Y_1 <- rbinom(nrow(df), 1, df$prob.thrombosis.if.treated)
+  
+  df$Y_1 <- Y_1
+  df$Y_0 <- Y_0 
+  return(df)
+}
+
+generate.simulation.russian.roulette <- function(n = 10000, m = 10000){
+  df.R <- data.frame("lifestyle" = rbinom(n, 1, 0.4),
+                     "stress" = rbinom(n, 1, 0.8),
+                     "gender" =  rbinom(n, 1, 0.5))
+  df.T <- data.frame("lifestyle" = rbinom(m, 1, 0.6),
+                     "stress" = rbinom(m, 1, 0.2),
+                     "gender" =  rbinom(m, 1, 0.5))
+
+  df.R$S <- rep(1, n)
+  df.T$S <- rep(0, m)
+  
+  df.R$A <- rbinom(n, 1, 0.5)
+  df.T$A <- rep(NA, m)
+  
+  df <- rbind(df.T, df.R)
+  
+  df$baseline <-  ifelse(df$lifestyle == 1, 0.2, 0.05) * ifelse(df$stress == 1, 2, 1) * ifelse(df$gender == 1, 0.5, 1)
+  Y_0 <- rbinom(nrow(df), 1, df$baseline)
+  df$treated <- df$baseline + (1-df$baseline)*ifelse(df$stress == 1, 1/4, ifelse(df$gender == 1, 1/10, 1/6))
+  Y_1 <- rbinom(nrow(df), 1, df$treated)
+  
+  df$Y_1 <- Y_1
+  df$Y_0 <- Y_0 
+  
+  df$Y <- ifelse(df$S == 1 & df$A == 1, df$Y_1, df$Y_0)
+  return(df)
+}
+```
+
+
+```{r}
+RUSSIAN.ROULETTE <- generate.simulation.russian.roulette()
+```
+
+```{r}
+P.1 = mean(RUSSIAN.ROULETTE[RUSSIAN.ROULETTE$S == 1, "treated"])
+P.0 = mean(RUSSIAN.ROULETTE[RUSSIAN.ROULETTE$S == 1, "baseline"])
+
+effects.source <- c("RR" = P.1 / P.0, "SR" = (1 - P.1) / (1 - P.0) , "RD" = P.1 - P.0, "NNT" = 1/(P.1 - P.0), "OR" = (P.1 / (1 - P.1)) / (P.0 / (1 - P.0)) )
+effects.source
+```
+
+Now, what is the effect in a population with a different baseline risks? In particular only 3% genetic background and only 10% smoking people?
+
+```{r}
+P.1 = mean(RUSSIAN.ROULETTE[RUSSIAN.ROULETTE$S == 0, "treated"])
+P.0 = mean(RUSSIAN.ROULETTE[RUSSIAN.ROULETTE$S == 0, "baseline"])
+
+effects.target <- c("RR" = P.1 / P.0, "SR" = (1 - P.1) / (1 - P.0) , "RD" = P.1 - P.0, "NNT" = 1/(P.1 - P.0), "OR" = (P.1 / (1 - P.1)) / (P.0 / (1 - P.0)) )
+effects.target
+```
+
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+generalize_binary <- function(dataframe, covariates_names_vector){
+
+  RCT <- dataframe[dataframe$S == 1,]
+  Obs <- dataframe[dataframe$S == 0,]
+    
+  Y.cond.RCT.treated <-  RCT[RCT$A == 1,] %>%
+      group_by(across(covariates_names_vector)) %>%
+      summarise(mu.1 = mean(Y))
+  
+  Y.cond.RCT.control <-  RCT[RCT$A == 0,] %>%
+      group_by(across(covariates_names_vector)) %>%
+      summarise(mu.0 = mean(Y))
+
+  Obs <- merge(Obs, Y.cond.RCT.control, by = covariates_names_vector, all.x = T)
+  Obs <- merge(Obs, Y.cond.RCT.treated, by = covariates_names_vector, all.x = T)
+  
+  p1.T = mean(Obs$mu.1)
+  p0.T = mean(Obs$mu.0)
+
+  Y.0.cond.target <-  Obs %>%
+      group_by(across(covariates_names_vector)) %>%
+      summarise(target.Y.0.cond.X = mean(Y_0))
+  
+  Obs <- merge(Obs, Y.0.cond.target, by = covariates_names_vector, all.x = T)
+
+  Obs$RD <- Obs$mu.1 - Obs$mu.0
+  Obs$RR <- Obs$mu.1 / Obs$mu.0
+  Obs$SR <- (1-Obs$mu.1) / (1-Obs$mu.0)
+  Obs$OR <- (Obs$mu.1 / (1-Obs$mu.1)) / (Obs$mu.0 / (1-Obs$mu.0))
+  
+  
+  # Estimates on the Target by standardization
+  estimate.Target.RD.stand <- mean(Obs$RD)
+  estimate.Target.RR.stand <- mean( Obs$target.Y.0.cond.X * Obs$RR) / mean(Obs$target.Y.0.cond.X)
+  estimate.Target.SR.stand <- mean( ( (1-Obs$target.Y.0.cond.X) / (1-mean(Obs$target.Y.0.cond.X)) )  * Obs$SR) 
+  
+  results.stand <- data.frame("estimate" = c(estimate.Target.RD.stand, estimate.Target.RR.stand, estimate.Target.SR.stand),
+                              "Re.weighting" = rep("Local effects", 3),
+                              "measure" = c("RD", "RR", "SR"))
+  
+  # Estimates on the Target by naive standardization
+  estimate.Target.RD.stand <- mean(Obs$RD, na.rm = T)
+  estimate.Target.RR.stand <- mean(Obs$RR, na.rm = T)
+  estimate.Target.SR.stand <- mean(Obs$SR, na.rm = T)
+  estimate.Target.OR.stand <- mean(Obs$OR, na.rm = T)
+  estimate.Target.NNT.stand <- mean(1/Obs$RD, na.rm = T)
+  
+  results.stand.naiv <- data.frame("estimate" = c(estimate.Target.RD.stand, estimate.Target.RR.stand, estimate.Target.SR.stand, estimate.Target.OR.stand, estimate.Target.NNT.stand),
+                              "Re.weighting" = rep("Local effects (naive)", 5),
+                              "measure" = c("RD", "RR", "SR", "OR", "NNT"))
+
+  # Estimates on the Target by outcome modeling
+  ## p0.T = mean(Obs$Y_0)
+  estimate.Target.RR.out <- p1.T / p0.T
+  estimate.Target.SR.out <- (1 - p1.T) / (1 - p0.T)
+  estimate.Target.OR.out <- (p1.T / (1-p1.T)) /  (p0.T / (1-p0.T))
+  estimate.Target.NNT.out <- 1/(p1.T-p0.T)
+  
+  
+  results.outcome <- data.frame("estimate" = c(estimate.Target.RD.stand, estimate.Target.RR.out, estimate.Target.SR.out, estimate.Target.OR.out, estimate.Target.NNT.out),
+                                "Re.weighting" = rep("Conditional outcome", 5),
+                                "measure" = c("RD", "RR", "SR", "OR", "NNT"))
+  
+  results <- rbind(results.outcome, results.stand, results.stand.naiv)
+
+  return(results)
+}
+```
+
+
+```{r}
+Y.binary.simulations <- data.frame("estimate" = c(),
+                                       "method" = c(),
+                                       "measure" = c(), 
+                                       "Re.weighting" = c())
+
+for (i in 1:100){
+
+  
+  simulation <- generate.simulation.russian.roulette(n = 10000, m = 20000)
+  
+  
+  for (subset in c("Treatment effect modulators shifted", "All shifted covariates", "All prognostic covariates")){
+      
+    if (subset == "Treatment effect modulators shifted"){
+      covariates.used.for.adjustement <- c("stress")
+    } else if (subset == "All shifted covariates"){
+      covariates.used.for.adjustement <- c("lifestyle", "stress")
+    } else if (subset == "All prognostic covariates"){
+      covariates.used.for.adjustement <- c("lifestyle", "stress", "gender")
+    }
+    
+      estimate <- generalize_binary(dataframe = simulation, covariates_names_vector = covariates.used.for.adjustement)
+      estimate$subset <- rep(subset, nrow(estimate))
+
+      Y.binary.simulations <- rbind(Y.binary.simulations, estimate)
+
+  }
+}
+```
+
+
+```{r}
+target.values <- data.frame(measure = c("RR", "RD", "SR", "NNT", "OR"),
+                         hline = c(effects.target["RR"], effects.target["RD"], effects.target["SR"], effects.target["NNT"], effects.target["OR"]))
+
+source.values <- data.frame(measure = c("RR", "RD", "SR", "NNT", "OR"), 
+                         hline = c(effects.source["RR"], effects.source["RD"], effects.source["SR"], effects.source["NNT"], effects.source["OR"]))
+
+look.values.up <- data.frame(measure = c("RR", "RD", "SR", "NNT", "OR"), 
+                         hline = c(2, 0.20, 0.9, 10, 1.3*effects.target["OR"]))
+
+look.values.down <- data.frame(measure = c("RR", "RD", "SR", "NNT", "OR"), 
+                         hline = c(1.8, 0.1, 0.78, 5, 0.8*effects.source["OR"]))
+```
+
+
+```{r}
+# for visibility
+Y.binary.simulations <- Y.binary.simulations[Y.binary.simulations$estimate > - 20, ]
+Y.binary.simulations <- Y.binary.simulations[Y.binary.simulations$estimate <  15, ]
+
+Y.binary.simulations <- Y.binary.simulations[! (Y.binary.simulations$estimate > 4 &  Y.binary.simulations$measure == "RR"),]
+Y.binary.simulations <- Y.binary.simulations[! (Y.binary.simulations$estimate > 5 &  Y.binary.simulations$measure == "OR"),, ]
+```
+
+
+```{r}
+ggplot(Y.binary.simulations, aes(x = subset,  y = estimate, fill = subset)) +
+  geom_boxplot() +
+  facet_grid(measure~Re.weighting, scales="free") +
+  theme(text = element_text(size=10), axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  xlab("") +
+  ylab("Effect value")  +
+  theme_bw() +
+    theme(legend.title = element_blank(),
+          legend.position="right", legend.box = "horizontal") +  # no title in legend
+  scale_fill_brewer(palette = "Set2") +
+  theme(legend.title=element_blank(), legend.position = "right", text = element_text(size=10, face = "bold"), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  geom_hline(data = target.values,
+             aes(yintercept = hline), color = "#0A11F3", size = 0.6, linetype = "dashed")+
+  geom_hline(data = source.values,
+             aes(yintercept = hline), color = "#F30ADB", size = 0.6, linetype = "dashed") +
+  geom_hline(data = look.values.up,
+             aes(yintercept = hline), color = "#F30ADB", size = 0.6, alpha = 0, linetype = "dashed") +
+    geom_hline(data = look.values.down,
+             aes(yintercept = hline), color = "#F30ADB", size = 0.6, alpha = 0, linetype = "dashed") +
+ theme(
+   strip.background = element_rect(
+     color="black", size=1.5, linetype="solid"
+     )
+   ) + scale_fill_manual(values=c("#D82412", "#F98903", "#E5E23F")) 
+
+ggsave("./fig/simulations-binary-Y.png", width = 8, height = 5)
+```
