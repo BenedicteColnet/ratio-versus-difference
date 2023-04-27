@@ -96,14 +96,14 @@ compute_gformula_continuous <- function(DF){
   # RR standardization
   expec.Y0.on.target <- lm(Y ~., data = temp[temp$S == 0, !names(temp) %in% c("S", "A")])
   baseline_predict <- predict(expec.Y0.on.target)
-  tau_hat_gformula.RR.stand <- mean( (mu_1_predict/mu_0_predict)*(baseline_predict) )  / mean.Y.0.target   
-  tau_hat_gformula.RR.stand.naive <- mean( (mu_1_predict/mu_0_predict)*(1) )  / 1 
+  tau_hat_gformula.RR.stand <- mean( (mu_1_predict/mu_0_predict)*(baseline_predict)/ mean.Y.0.target   )   
+  tau_hat_gformula.RR.stand.naive <- mean( (mu_1_predict/mu_0_predict) )
 
   # RR outcome
   tau_hat_gformula.RR.outcome <- mean(mu_1_predict) / mean(mu_0_predict)
   
   # ERR outcome
-  tau_hat_gformula.ERR.outcome <- tau_hat_gformula.RD.stand/mean(mu_0_predict)
+  tau_hat_gformula.ERR.outcome <- (mean(mu_1_predict)-mean(mu_0_predict))/ mean(mu_0_predict)
   
   # ERR standardization
   tau_hat_gformula.ERR.stand <- mean( ( (mu_1_predict - mu_0_predict)/mu_0_predict)*(baseline_predict) )  / mean.Y.0.target   
@@ -128,7 +128,7 @@ ATE.SOURCE.ERR <-ATE.SOURCE.RD / mean(source$Y_0)
 
 
 ```{r}
-simulation <- simulate_continuous(n = 10000, m = 10000)
+simulation <- simulate_continuous(n = 5000, m = 10000)
 simulation$Population <- ifelse(simulation$S == 1 , "Source", "Target")
 
 simulation <- simulation %>% 
@@ -166,9 +166,9 @@ Y.continuous.simulations <- data.frame("measure" = c(),
                                        "estimate" = c(), 
                                        "Re.weighting" = c())
 
-for (i in 1:500){
+for (i in 1:1000){
   
-  simulation <- simulate_continuous(n = 2000, m = 5000)
+  simulation <- simulate_continuous(n = 500, m = 1000)
   for (subset in c("Shifted treatment effect modulators", "Shifted prognostic covariates", "All prognostic covariates")){
       
     if (subset == "Shifted treatment effect modulators"){
@@ -204,7 +204,7 @@ source.values <- data.frame(measure = c("ERR", "RD", "RR"),
 
 
 ```{r}
-ggplot(Y.continuous.simulations, aes(x = subset,  y = estimate, fill = subset)) +
+ggplot(Y.continuous.simulations[ Y.continuous.simulations$Re.weighting %in% c("Local effects",  "Conditional outcome"),], aes(x = subset,  y = estimate, fill = subset)) +
   geom_boxplot() +
   facet_grid(measure~Re.weighting, scales="free") +
   theme(text = element_text(size=10), axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
@@ -214,7 +214,7 @@ ggplot(Y.continuous.simulations, aes(x = subset,  y = estimate, fill = subset)) 
     theme(legend.title = element_blank(), 
           legend.position="right", legend.box = "horizontal") +  # no title in legend
   scale_fill_brewer(palette = "Set2") +
-  theme(legend.title=element_blank(), legend.position = "right", text = element_text(size=12, face = "bold"), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) +                                                
+  theme(legend.title=element_blank(), legend.position = "right", text = element_text(size=10, face = "bold"), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) +                                                
   geom_hline(data = target.values,
              aes(yintercept = hline), color = "#0A11F3", size = 1, linetype = "dashed")+                                                
   geom_hline(data = source.values,
@@ -225,7 +225,8 @@ ggplot(Y.continuous.simulations, aes(x = subset,  y = estimate, fill = subset)) 
      )
    ) + scale_fill_manual(values=c("#D82412", "#F98903", "#E5E23F"))
 
-ggsave("./fig/simulations-continuous-Y.png", height = 5, width = 9)
+
+ggsave("./fig/simulations-continuous-Y.png", height = 5, width = 7)
 ```
 
 
@@ -389,10 +390,10 @@ Y.binary.simulations <- data.frame("estimate" = c(),
                                        "measure" = c(), 
                                        "Re.weighting" = c())
 
-for (i in 1:100){
+for (i in 1:1000){
 
   
-  simulation <- generate.simulation.russian.roulette(n = 10000, m = 20000)
+  simulation <- generate.simulation.russian.roulette(n = 5000, m = 20000)
   
   
   for (subset in c("Treatment effect modulators shifted", "All shifted covariates", "All prognostic covariates")){
@@ -441,7 +442,7 @@ Y.binary.simulations <- Y.binary.simulations[! (Y.binary.simulations$estimate > 
 
 
 ```{r}
-ggplot(Y.binary.simulations, aes(x = subset,  y = estimate, fill = subset)) +
+ggplot(Y.binary.simulations[Y.binary.simulations$Re.weighting != "Local effects (naive)",], aes(x = subset,  y = estimate, fill = subset)) +
   geom_boxplot() +
   facet_grid(measure~Re.weighting, scales="free") +
   theme(text = element_text(size=10), axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
@@ -466,5 +467,5 @@ ggplot(Y.binary.simulations, aes(x = subset,  y = estimate, fill = subset)) +
      )
    ) + scale_fill_manual(values=c("#D82412", "#F98903", "#E5E23F")) 
 
-ggsave("./fig/simulations-binary-Y.png", width = 8, height = 5)
+ggsave("./fig/simulations-binary-Y.png", width = 7, height = 5)
 ```
